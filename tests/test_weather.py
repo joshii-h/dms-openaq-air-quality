@@ -51,14 +51,18 @@ def hours(values, end=NOW.replace(minute=0)):
 
 
 class FakeOpenAQ:
-    def __init__(self, monitors=(), sensors=(), latest_by_location=None, hours_by_sensor=None):
+    def __init__(self, monitors=(), sensors=(), latest_by_location=None, hours_by_sensor=None, errors=None):
         self.locations = {"true": list(monitors), "false": list(sensors)}
         self.latest = latest_by_location or {}
         self.hours = hours_by_sensor or {}
+        # path → exception to raise, as get_json would.
+        self.errors = errors or {}
         self.calls = []
 
     def __call__(self, path, params, key):
         self.calls.append((path, dict(params or {}), key))
+        if path in self.errors:
+            raise self.errors[path]
         if path == "/locations":
             return {"results": self.locations[params["monitor"]]}
         if path.endswith("/latest"):
@@ -314,6 +318,45 @@ class Lookup(TempDirs):
         self.assertIn("last 3 hours", str(raised.exception.code))
         self.assertNotIn("/sensors/101/hours", fake.paths())
 
+    def test_station_with_an_http_error_is_skipped(self):
+        gone = location(1, 46.95, 7.451, [sensor(11, "pm25")])
+        broken = location(2, 46.96, 7.45, [sensor(21, "pm25")])
+        fresh = location(3, 47.00, 7.45, [sensor(31, "pm25")])
+        fake = self.use(FakeOpenAQ(monitors=[gone, broken, fresh],
+                                   latest_by_location={3: [latest(31, 5.0)]},
+                                   hours_by_sensor={31: []},
+                                   errors={"/locations/1/latest": weather.HttpStatus(404),
+                                           "/locations/2/latest": weather.HttpStatus(502)}))
+        current, _ = weather.air_quality(*BERN, "k", NOW)
+        self.assertEqual(current["pm2_5"], 5.0)
+        self.assertEqual(fake.paths()[1:4], ["/locations/1/latest", "/locations/2/latest", "/locations/3/latest"])
+
+    def test_every_station_failing_names_the_errors(self):
+        station, _ = bern_station()
+        self.use(FakeOpenAQ(monitors=[station], errors={"/locations/10/latest": weather.HttpStatus(404)}))
+        with self.assertRaises(SystemExit) as raised:
+            weather.air_quality(*BERN, "k", NOW)
+        self.assertIn("station 10: HTTP 404", str(raised.exception.code))
+
+    def test_rejected_key_still_stops_at_the_first_station(self):
+        station, readings = bern_station()
+        fake = self.use(FakeOpenAQ(monitors=[station, location(2, 47.0, 7.45, [sensor(21, "pm25")])],
+                                   latest_by_location={2: [latest(21, 5.0)]},
+                                   errors={"/locations/10/latest": SystemExit("OpenAQ rate limit reached")}))
+        with self.assertRaises(SystemExit) as raised:
+            weather.air_quality(*BERN, "k", NOW)
+        self.assertIn("rate limit", str(raised.exception.code))
+        self.assertNotIn("/locations/2/latest", fake.paths())
+
+    def test_missing_hours_fall_back_to_the_latest_value(self):
+        station, readings = bern_station()
+        self.use(FakeOpenAQ(monitors=[station], latest_by_location={10: readings},
+                            errors={"/sensors/101/hours": weather.HttpStatus(500),
+                                    "/sensors/102/hours": weather.HttpStatus(500)}))
+        current, _ = weather.air_quality(*BERN, "k", NOW)
+        self.assertIsNone(current["pm2_5_mean_24h"])
+        self.assertEqual(current["us_aqi"], 56)
+
     def test_tries_at_most_three_stations(self):
         monitors = [location(i, 46.95 + i / 100, 7.45, [sensor(i * 10, "pm25")]) for i in range(1, 6)]
         fake = self.use(FakeOpenAQ(monitors=monitors, latest_by_location={5: [latest(50, 10.0)]}))
@@ -429,6 +472,12 @@ class Http(unittest.TestCase):
                 self.assertRaises(SystemExit) as raised:
             weather.get_json("/locations", {}, "k")
         self.assertIn("rate limit", raised.exception.code)
+        self.assertNotIsInstance(raised.exception, weather.HttpStatus)
+        with self.fail_with(urllib.error.HTTPError("u", 404, "Not Found", {}, None)), \
+                self.assertRaises(weather.HttpStatus) as raised:
+            weather.get_json("/locations/1/latest", {}, "k")
+        self.assertEqual(raised.exception.status, 404)
+        self.assertEqual(raised.exception.code, "OpenAQ: HTTP 404")
         with self.fail_with(urllib.error.URLError("no route")), self.assertRaises(SystemExit) as raised:
             weather.get_json("/locations", {}, "k")
         self.assertIn("unreachable", raised.exception.code)

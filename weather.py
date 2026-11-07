@@ -213,6 +213,16 @@ def api_key():
     return key
 
 
+class HttpStatus(SystemExit):
+    """An HTTP error that concerns only the resource asked for, such as 404
+    for a station that was removed, unlike a rejected key or the rate limit.
+    Unhandled it ends the script like any other SystemExit."""
+
+    def __init__(self, status):
+        super().__init__(f"OpenAQ: HTTP {status}")
+        self.status = status
+
+
 def get_json(path, params, key):
     url = f"{API}{path}"
     if params:
@@ -234,7 +244,7 @@ def get_json(path, params, key):
             raise SystemExit(f"OpenAQ rejected the API key (HTTP {error.code})") from None
         if error.code == 429:
             raise SystemExit("OpenAQ rate limit reached, try again later") from None
-        raise SystemExit(f"OpenAQ: HTTP {error.code}") from None
+        raise HttpStatus(error.code) from None
     except urllib.error.URLError as error:
         raise SystemExit(f"OpenAQ unreachable: {error.reason}") from None
     except (OSError, ValueError) as error:
@@ -348,7 +358,11 @@ def hourly_mean(sensor_id, key, now):
         "datetime_to": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "limit": 100,
     }
-    data = get_json(f"/sensors/{sensor_id}/hours", params, key)
+    try:
+        data = get_json(f"/sensors/{sensor_id}/hours", params, key)
+    except HttpStatus:
+        # Without the hours the latest reading stands in for the mean.
+        return None
     hours = []
     for item in (data.get("results") if isinstance(data, dict) else None) or []:
         if isinstance(item, dict):
@@ -391,13 +405,21 @@ def air_quality(lat, lon, key, now):
     if not candidates:
         raise SystemExit(f"no OpenAQ station measures PM2.5 within {RADIUS // 1000} km")
 
+    failed = []
     for candidate in candidates[:MAX_CANDIDATES]:
-        readings = latest_readings(candidate, key, now)
+        try:
+            readings = latest_readings(candidate, key, now)
+        except HttpStatus as error:
+            # The station list can be a day old; a station removed since, or
+            # one OpenAQ fails to answer for, is skipped for the next.
+            failed.append(f"station {candidate['id']}: HTTP {error.status}")
+            continue
         if "pm25" in readings:
             break
     else:
-        raise SystemExit(f"no OpenAQ station within {RADIUS // 1000} km has measured PM2.5 "
-                         f"in the last {int(STALE_AFTER.total_seconds() // 3600)} hours")
+        message = (f"no OpenAQ station within {RADIUS // 1000} km has measured PM2.5 "
+                   f"in the last {int(STALE_AFTER.total_seconds() // 3600)} hours")
+        raise SystemExit(f"{message} ({', '.join(failed)})" if failed else message)
 
     sensors = candidate["sensors"]
     pm25_mean = hourly_mean(sensors["pm25"]["id"], key, now)
