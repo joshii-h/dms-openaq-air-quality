@@ -448,6 +448,52 @@ class Lookup(TempDirs):
             self.assertEqual(json.load(f)["46.95,7.45"]["stations"][0]["id"], 10)
 
 
+class CacheFile(TempDirs):
+    def path(self):
+        return os.path.join(os.environ["XDG_CACHE_HOME"], weather.APP, "results.json")
+
+    def test_expired_and_malformed_entries_are_dropped(self):
+        now_s = NOW.timestamp()
+        cache = {"fresh": {"at": now_s - 59, "v": 1}, "expired": {"at": now_s - 60, "v": 2},
+                 "no-time": {"v": 3}, "bad-time": {"at": "soon"}, "not-a-dict": 4}
+        weather.write_cache(self.path(), cache, 60, now_s)
+        self.assertEqual(weather.read_cache(self.path()), {"fresh": {"at": now_s - 59, "v": 1}})
+        # The caller's dict is left alone.
+        self.assertIn("expired", cache)
+
+    def test_written_through_a_temporary_file(self):
+        now_s = NOW.timestamp()
+        replaced = []
+        real_replace = os.replace
+
+        def replace(src, dst):
+            replaced.append((src, dst))
+            # Until the rename the target is untouched.
+            self.assertFalse(os.path.exists(dst))
+            real_replace(src, dst)
+
+        with mock.patch.object(weather.os, "replace", replace):
+            weather.write_cache(self.path(), {"a": {"at": now_s}}, 60, now_s)
+        self.assertEqual(len(replaced), 1)
+        src, dst = replaced[0]
+        self.assertEqual(dst, self.path())
+        self.assertEqual(os.path.dirname(src), os.path.dirname(self.path()))
+        self.assertEqual(os.listdir(os.path.dirname(self.path())), ["results.json"])
+
+    def test_failed_write_keeps_the_old_file(self):
+        now_s = NOW.timestamp()
+        weather.write_cache(self.path(), {"a": {"at": now_s, "v": 1}}, 60, now_s)
+        # NaN cannot be written as JSON: the write fails half way.
+        weather.write_cache(self.path(), {"a": {"at": now_s, "v": float("nan")}}, 60, now_s)
+        self.assertEqual(weather.read_cache(self.path()), {"a": {"at": now_s, "v": 1}})
+        self.assertEqual(os.listdir(os.path.dirname(self.path())), ["results.json"])
+
+    def test_unwritable_directory_is_no_error(self):
+        blocker = os.path.join(self.tmp.name, "file")
+        open(blocker, "w").close()
+        weather.write_cache(os.path.join(blocker, "results.json"), {}, 60, NOW.timestamp())
+
+
 class Key(TempDirs):
     def test_missing_key_names_both_places(self):
         with self.assertRaises(SystemExit) as raised:
