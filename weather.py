@@ -326,6 +326,11 @@ def find_stations(lat, lon, key, now):
     """Stations with PM2.5 within RADIUS: reference monitors nearest first, then
     low-cost sensors nearest first."""
     found = []
+    # The results are not ordered by distance, so the list must be complete
+    # for the nearest station to be in it. OpenAQ's default is 100 and its
+    # API description names no maximum; 1000 was tried against the live API
+    # (November 2026) and is accepted, echoed back in meta.limit. Within
+    # 25 km and filtered to PM2.5 even dense low-cost networks stay below it.
     base = {"coordinates": f"{lat:.2f},{lon:.2f}", "radius": RADIUS,
             "parameters_id": PM25_PARAMETER_ID, "limit": 1000}
     # Monitors first; the much larger list of low-cost sensors only when there is none.
