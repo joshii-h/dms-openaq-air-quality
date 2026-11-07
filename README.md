@@ -91,8 +91,12 @@ JSON on stdin (`{"latitude": 46.95, "longitude": 7.45}`). The script:
 4. Fetches the station's hourly PM2.5 and PM10 of the past 24 hours.
 5. Prints the result in the Open-Meteo response format, with every weather
    reading null and a single hour and day without readings, which Dux Shell
-   needs to accept the answer. The result is cached for 10 minutes in
-   `~/.cache/dms-openaq-air-quality/results.json`.
+   needs to accept the answer. The result is cached for 30 minutes in
+   `~/.cache/dms-openaq-air-quality/results.json`, and so is the lack of a
+   fresh reading. Dux Shell refreshes about every 15 minutes and at every
+   start, so OpenAQ is asked at most twice an hour per location; in between
+   the plugin answers from the cache. A network failure is not cached, the
+   next refresh tries again.
 
 Test it by hand:
 

@@ -357,6 +357,28 @@ class Lookup(TempDirs):
         self.assertIsNone(current["pm2_5_mean_24h"])
         self.assertEqual(current["us_aqi"], 56)
 
+    def test_no_fresh_reading_is_cached_too(self):
+        station, _ = bern_station()
+        fake = self.use(FakeOpenAQ(monitors=[station], errors={"/locations/10/latest": weather.HttpStatus(503)}))
+        for minutes in (0, 15, 29):
+            with self.assertRaises(SystemExit) as raised:
+                weather.air_quality(*BERN, "k", NOW + timedelta(minutes=minutes))
+            self.assertIn("station 10: HTTP 503", str(raised.exception.code))
+        self.assertEqual(fake.paths().count("/locations/10/latest"), 1)
+        with self.assertRaises(SystemExit):
+            weather.air_quality(*BERN, "k", NOW + timedelta(minutes=31))
+        self.assertEqual(fake.paths().count("/locations/10/latest"), 2)
+
+    def test_network_errors_are_not_cached(self):
+        station, readings = bern_station()
+        fake = self.use(FakeOpenAQ(monitors=[station], latest_by_location={10: readings}, hours_by_sensor={},
+                                   errors={"/locations/10/latest": SystemExit("OpenAQ unreachable")}))
+        with self.assertRaises(SystemExit):
+            weather.air_quality(*BERN, "k", NOW)
+        del fake.errors["/locations/10/latest"]
+        current, _ = weather.air_quality(*BERN, "k", NOW + timedelta(minutes=1))
+        self.assertEqual(current["pm2_5"], 12.3)
+
     def test_tries_at_most_three_stations(self):
         monitors = [location(i, 46.95 + i / 100, 7.45, [sensor(i * 10, "pm25")]) for i in range(1, 6)]
         fake = self.use(FakeOpenAQ(monitors=monitors, latest_by_location={5: [latest(50, 10.0)]}))
@@ -391,14 +413,16 @@ class Lookup(TempDirs):
         # Monitors and low-cost sensors, at the first run and after the hour.
         self.assertEqual(fake.paths().count("/locations"), 4)
 
-    def test_result_is_cached_for_ten_minutes(self):
+    def test_at_most_one_lookup_in_30_minutes(self):
         station, readings = bern_station()
         fake = self.use(FakeOpenAQ(monitors=[station], latest_by_location={10: readings}, hours_by_sensor={}))
         first, _ = weather.air_quality(*BERN, "k", NOW)
-        second, _ = weather.air_quality(*BERN, "k", NOW + timedelta(minutes=9))
-        self.assertEqual(first, second)
+        # Dux Shell's refreshes every 15 minutes, and a restart in between.
+        for minutes in (1, 15, 29):
+            again, _ = weather.air_quality(*BERN, "k", NOW + timedelta(minutes=minutes))
+            self.assertEqual(again, first)
         self.assertEqual(fake.paths().count("/locations/10/latest"), 1)
-        weather.air_quality(*BERN, "k", NOW + timedelta(minutes=11))
+        weather.air_quality(*BERN, "k", NOW + timedelta(minutes=31))
         self.assertEqual(fake.paths().count("/locations/10/latest"), 2)
         # The station list is still cached.
         self.assertEqual(fake.paths().count("/locations"), 1)

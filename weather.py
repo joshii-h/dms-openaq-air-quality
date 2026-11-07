@@ -38,7 +38,9 @@ STATIONS_TTL = 24 * 3600
 # A miss is remembered for less time, so a new or returning station is not
 # left out for a whole day.
 NO_STATIONS_TTL = 3600
-RESULT_TTL = 10 * 60
+# Dux Shell asks about every 15 minutes and at every start; OpenAQ is asked
+# at most once in this time per location, the rest is answered from the cache.
+RESULT_TTL = 30 * 60
 # How many stations to try, nearest first, before giving up.
 MAX_CANDIDATES = 3
 # The EEA's 75 % of 24 hours for a daily mean, as in dux-go.
@@ -385,7 +387,8 @@ def round_half_up(value):
 
 
 def air_quality(lat, lon, key, now):
-    """Air quality readings for the rounded location, cached for RESULT_TTL."""
+    """Air quality readings for the rounded location, cached for RESULT_TTL,
+    as is the lack of a fresh reading."""
     now_s = now.timestamp()
     location = f"{lat:.2f},{lon:.2f}"
     results_path = os.path.join(cache_dir(), "results.json")
@@ -393,6 +396,8 @@ def air_quality(lat, lon, key, now):
     entry = cached(results, location, RESULT_TTL, now_s)
     if entry and isinstance(entry.get("current"), dict):
         return entry["current"], entry.get("timezone") or ""
+    if entry and isinstance(entry.get("error"), str):
+        raise SystemExit(entry["error"])
 
     stations_path = os.path.join(cache_dir(), "stations.json")
     stations_cache = read_cache(stations_path)
@@ -423,7 +428,12 @@ def air_quality(lat, lon, key, now):
     else:
         message = (f"no OpenAQ station within {RADIUS // 1000} km has measured PM2.5 "
                    f"in the last {int(STALE_AFTER.total_seconds() // 3600)} hours")
-        raise SystemExit(f"{message} ({', '.join(failed)})" if failed else message)
+        message = f"{message} ({', '.join(failed)})" if failed else message
+        # Remembered like a result, so stations without readings are not
+        # asked again before RESULT_TTL is up.
+        results[location] = {"at": now_s, "error": message}
+        write_cache(results_path, results, RESULT_TTL, now_s)
+        raise SystemExit(message)
 
     sensors = candidate["sensors"]
     pm25_mean = hourly_mean(sensors["pm25"]["id"], key, now)
