@@ -83,7 +83,8 @@ JSON on stdin (`{"latitude": 46.95, "longitude": 7.45}`). The script:
    monitors (official stations) come first, nearest first; low-cost sensors
    only when there is no monitor in range. Mobile stations are skipped. The
    list is cached for a day per rounded location in
-   `~/.cache/dms-openaq-air-quality/stations.json`, misses included.
+   `~/.cache/dms-openaq-air-quality/stations.json`; a location without any
+   station is looked up again after an hour.
 3. Takes the latest readings of the nearest station whose PM2.5 is at most
    3 hours old. A station that went quiet is skipped for the next one, up to
    three stations.

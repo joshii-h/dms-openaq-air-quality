@@ -375,10 +375,20 @@ class Lookup(TempDirs):
         self.assertEqual(fake.paths(), ["/locations", "/locations"])
 
     def test_station_list_expires_after_a_day(self):
-        fake = self.use(FakeOpenAQ())
+        station, _ = bern_station()
+        # The station has no readings: only how often the list is asked for counts.
+        fake = self.use(FakeOpenAQ(monitors=[station]))
         for at in (NOW, NOW + timedelta(hours=23), NOW + timedelta(hours=25)):
             with self.assertRaises(SystemExit):
                 weather.air_quality(*BERN, "k", at)
+        self.assertEqual(fake.paths().count("/locations"), 2)
+
+    def test_no_station_is_looked_up_again_after_an_hour(self):
+        fake = self.use(FakeOpenAQ())
+        for at in (NOW, NOW + timedelta(minutes=59), NOW + timedelta(minutes=61)):
+            with self.assertRaises(SystemExit):
+                weather.air_quality(*BERN, "k", at)
+        # Monitors and low-cost sensors, at the first run and after the hour.
         self.assertEqual(fake.paths().count("/locations"), 4)
 
     def test_result_is_cached_for_ten_minutes(self):

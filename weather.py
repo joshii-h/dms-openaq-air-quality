@@ -35,6 +35,9 @@ STALE_AFTER = timedelta(hours=3)
 # Stations without any reading for this long are left out of the station list.
 RETIRED_AFTER = timedelta(days=7)
 STATIONS_TTL = 24 * 3600
+# A miss is remembered for less time, so a new or returning station is not
+# left out for a whole day.
+NO_STATIONS_TTL = 3600
 RESULT_TTL = 10 * 60
 # How many stations to try, nearest first, before giving up.
 MAX_CANDIDATES = 3
@@ -394,12 +397,13 @@ def air_quality(lat, lon, key, now):
     stations_path = os.path.join(cache_dir(), "stations.json")
     stations_cache = read_cache(stations_path)
     entry = cached(stations_cache, location, STATIONS_TTL, now_s)
-    if entry and isinstance(entry.get("stations"), list):
+    if entry and isinstance(entry.get("stations"), list) and \
+            (entry["stations"] or now_s - entry["at"] < NO_STATIONS_TTL):
         candidates = entry["stations"]
     else:
         candidates = find_stations(lat, lon, key, now)
-        # Misses are remembered too, so a location without stations is not
-        # looked up again on every refresh.
+        # Misses are remembered too, for NO_STATIONS_TTL, so a location
+        # without stations is not looked up again on every refresh.
         stations_cache[location] = {"at": now_s, "stations": candidates}
         write_cache(stations_path, stations_cache, STATIONS_TTL, now_s)
     if not candidates:
