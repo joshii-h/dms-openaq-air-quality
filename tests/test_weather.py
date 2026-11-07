@@ -156,6 +156,16 @@ class USIndex(unittest.TestCase):
         self.assertIsNone(weather.us_aqi(-3, None))
 
 
+class Rounding(unittest.TestCase):
+    def test_indices_round_half_up(self):
+        self.assertEqual(weather.round_half_up(50.5), 51)
+        self.assertEqual(weather.round_half_up(52.5), 53)
+        self.assertEqual(weather.round_half_up(50.49), 50)
+        self.assertEqual(weather.round_half_up(0), 0)
+        self.assertIsNone(weather.round_half_up(None))
+        self.assertIsInstance(weather.round_half_up(7.5), int)
+
+
 class Units(unittest.TestCase):
     def test_micrograms_pass_through(self):
         for units in ("µg/m³", "μg/m³", "ug/m3", " µg/m3 "):
@@ -266,6 +276,14 @@ class Lookup(TempDirs):
         self.assertIsNone(current["pm2_5_mean_24h"])
         # PM2.5 12.34 latest → 56.3, above PM10 20 → 18.2.
         self.assertEqual(current["us_aqi"], 56)
+
+    def test_index_of_exactly_half_rounds_up(self):
+        # PM2.5 9.25 µg/m³ → European index 28.5, alone at the station.
+        station = location(10, 46.95, 7.44, [sensor(101, "pm25")])
+        self.use(FakeOpenAQ(monitors=[station], latest_by_location={10: [latest(101, 9.25)]},
+                            hours_by_sensor={}))
+        current, _ = weather.air_quality(*BERN, "k", NOW)
+        self.assertEqual(current["european_aqi"], 29)
 
     def test_stale_station_is_skipped_for_the_next(self):
         stale = location(1, 46.95, 7.451, [sensor(11, "pm25")])

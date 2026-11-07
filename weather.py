@@ -356,6 +356,12 @@ def round_or_none(value, digits=None):
     return None if value is None else round(value, digits)
 
 
+def round_half_up(value):
+    """An index rounded to a whole number, .5 up as the EPA and Open-Meteo do;
+    round() would take 50.5 down to 50. None stays None."""
+    return None if value is None else math.floor(value + 0.5)
+
+
 def air_quality(lat, lon, key, now):
     """Air quality readings for the rounded location, cached for RESULT_TTL."""
     now_s = now.timestamp()
@@ -396,8 +402,8 @@ def air_quality(lat, lon, key, now):
     us = us_aqi(pm25_mean if pm25_mean is not None else pm25,
                 pm10_mean if pm10_mean is not None else pm10)
     current = {
-        "european_aqi": round_or_none(european_aqi(readings)),
-        "us_aqi": round_or_none(us),
+        "european_aqi": round_half_up(european_aqi(readings)),
+        "us_aqi": round_half_up(us),
         "pm2_5": round_or_none(pm25, 1),
         "pm10": round_or_none(pm10, 1),
         "pm2_5_mean_24h": pm25_mean,
