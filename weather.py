@@ -220,8 +220,13 @@ def get_json(path, params, key):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
     # Unredirected: a redirect to another host does not get the key.
     request.add_unredirected_header("X-API-Key", key)
+    # The timeout only bounds each socket operation, so a request that would
+    # start past the deadline is not started at all.
+    remaining = DEADLINE - time.monotonic()
+    if remaining <= 0:
+        raise SystemExit("OpenAQ took too long, giving up before Dux Shell stops the plugin")
     try:
-        with urllib.request.urlopen(request, timeout=max(1, DEADLINE - time.monotonic())) as response:
+        with urllib.request.urlopen(request, timeout=max(1, remaining)) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
         error.close()

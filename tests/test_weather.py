@@ -406,6 +406,12 @@ class Key(TempDirs):
 
 
 class Http(unittest.TestCase):
+    def setUp(self):
+        # The deadline is set at import; give each test a fresh budget.
+        patcher = mock.patch.object(weather, "DEADLINE", weather.time.monotonic() + 12)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def fail_with(self, error):
         return mock.patch("urllib.request.urlopen", side_effect=error)
 
@@ -426,6 +432,23 @@ class Http(unittest.TestCase):
         with self.fail_with(urllib.error.URLError("no route")), self.assertRaises(SystemExit) as raised:
             weather.get_json("/locations", {}, "k")
         self.assertIn("unreachable", raised.exception.code)
+
+    def test_no_request_after_the_deadline(self):
+        opened = []
+
+        def urlopen(request, timeout):
+            opened.append(timeout)
+            return io.BytesIO(b'{"results": []}')
+
+        with mock.patch("urllib.request.urlopen", urlopen):
+            with mock.patch.object(weather, "DEADLINE", weather.time.monotonic() + 0.5):
+                weather.get_json("/locations", {}, "k")
+            with mock.patch.object(weather, "DEADLINE", weather.time.monotonic() - 0.01), \
+                    self.assertRaises(SystemExit) as raised:
+                weather.get_json("/locations", {}, "k")
+        self.assertIn("too long", raised.exception.code)
+        # Only the request within the budget went out, with at least 1 s.
+        self.assertEqual(opened, [1])
 
     def test_key_is_not_passed_on_redirects(self):
         captured = {}
