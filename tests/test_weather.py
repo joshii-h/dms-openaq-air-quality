@@ -141,8 +141,11 @@ class USIndex(unittest.TestCase):
         self.assertAlmostEqual(weather.us_index("pm25", 4.5), 25)
         # 225.5-325.5 spans 300-500, so 275.5 is 400.
         self.assertAlmostEqual(weather.us_index("pm25", 275.5), 400)
-        # Above the top: the last step's slope, 2 points per µg/m³.
-        self.assertAlmostEqual(weather.us_index("pm25", 425.5), 700)
+        # The scale ends at 500: the top breakpoint and anything above it.
+        self.assertAlmostEqual(weather.us_index("pm25", 325.4), 499.8)
+        self.assertEqual(weather.us_index("pm25", 325.5), 500)
+        self.assertEqual(weather.us_index("pm25", 425.5), 500)
+        self.assertEqual(weather.us_index("pm10", 900), 500)
         self.assertAlmostEqual(weather.us_index("pm10", 105), 75)
 
     def test_worse_of_pm25_and_pm10(self):

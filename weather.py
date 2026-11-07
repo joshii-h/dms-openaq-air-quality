@@ -66,6 +66,7 @@ US_THRESHOLDS = {
     "pm25": [0, 9, 35.5, 55.5, 125.5, 225.5, 325.5],
     "pm10": [0, 55, 155, 255, 355, 425, 605],
 }
+US_MAX = 500
 
 WEATHER_FIELDS = ("temperature_2m", "apparent_temperature", "relative_humidity_2m", "is_day",
                   "weather_code", "surface_pressure", "wind_speed_10m", "wind_direction_10m")
@@ -110,15 +111,17 @@ def european_aqi(concentrations):
 
 def us_scale(step):
     # Steps 0-4 are 50 index points each, step 5 is 100 and step 6 is 200.
+    # The EPA's scale ends at 500, "hazardous" covers everything above.
     if step <= 4:
         return step * 50
     if step <= 5:
         return step * 100 - 200
-    return step * 200 - 700
+    return min(step * 200 - 700, US_MAX)
 
 
 def us_index(pollutant, mean):
-    """US index for one 24-hour mean in µg/m³, None when missing or negative."""
+    """US index, 0 to 500, for one 24-hour mean in µg/m³, None when missing
+    or negative."""
     mean = finite(mean)
     if mean is None or mean < 0 or pollutant not in US_THRESHOLDS:
         return None
