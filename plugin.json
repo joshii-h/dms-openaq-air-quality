@@ -1,0 +1,22 @@
+{
+    "id": "openaqAirQuality",
+    "name": "OpenAQ Air Quality",
+    "description": "Air quality provider with measurements from the nearest OpenAQ station",
+    "version": "0.1.0",
+    "author": "joshii-h",
+    "icon": "air",
+    "type": "weather",
+    "capabilities": [
+        "weather"
+    ],
+    "requires_dms": ">=2.1.1",
+    "dependencies": [
+        "python3"
+    ],
+    "weather": {
+        "command": "./weather.py",
+        "name": "OpenAQ",
+        "url": "https://openaq.org"
+    },
+    "license": "MIT"
+}
