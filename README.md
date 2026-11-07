@@ -14,9 +14,12 @@ and MET Norway.
 ## Requirements
 
 - Dux Shell 2.1.1 or newer, the first release whose dms runs weather provider
-  plugins (the `weather.plugins` capability). The air quality readings and
-  their tile arrive with a later release; until then the plugin runs, but
-  nothing shows its values.
+  plugins (the `weather.plugins` capability).
+- For the values to show up, a dms release that also passes on the air
+  quality fields (`european_aqi`, `us_aqi`, `pm2_5`, `pm10`,
+  `pm2_5_mean_24h`) and has the air quality tile. That is a later release
+  than 2.1.1: dms 2.1.1 runs the plugin but drops these fields, so nothing
+  shows its values yet.
 - `python3` (standard library only)
 - A free OpenAQ API key, see below.
 - A station within 25 km of your weather location that reports PM2.5.
@@ -141,11 +144,14 @@ the same as the modelled values on the same tile.
 - **Delay.** Many networks publish hourly or later, so readings are often an
   hour or two old. Older than 3 hours counts as no reading.
 - **Rate limits.** The free key allows 60 requests per minute and 2000 per
-  hour. A refresh needs up to 3 requests, the station lookup once a day 1 or 2
-  more, well within that.
+  hour. A lookup needs up to 5 requests: the latest readings of up to three
+  stations and the hourly PM2.5 and PM10 of one. The station search adds 1
+  or 2 more once a day, or once an hour where no station was found. With at
+  most two lookups an hour that is at most 12 requests an hour per
+  location, well within the limits.
 - **Privacy.** The coordinates, rounded to about 1 km, go to OpenAQ once a
-  day per location; the station ID goes on each refresh, together with your
-  API key, which identifies your account.
+  day per location; the station ID goes with each lookup, at most twice an
+  hour, together with your API key, which identifies your account.
 
 ## Data and attribution
 
